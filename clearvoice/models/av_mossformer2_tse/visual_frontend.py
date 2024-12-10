@@ -5,9 +5,45 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+# enable mixed precision training
+from torch.cuda.amp import autocast
+
+def forward(self, inputBatch):
+    with autocast():
+        batch = self.layer1(inputBatch)
+        batch = self.layer2(batch)
+        batch = self.layer3(batch)
+        batch = self.layer4(batch)
+        outputBatch = self.avgpool(batch)
+    return outputBatch
+
+#support for multi_GPU system
+model = nn.DataParallel(Visual_encoder(args))
 
 
+def initialize_weights(m):
+    if isinstance(m, nn.Conv1d) or isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv3d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm1d) or isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
 
+#Log tensor shapes at critical points to debug and understand the flow of data through the network
+
+def forward(self, inputBatch):
+    print(f"Input shape: {inputBatch.shape}")
+    batch = self.layer1(inputBatch)
+    print(f"After layer1: {batch.shape}")
+    # Continue logging for other layers
+    return outputBatch
+
+
+# Apply to the models
+visual_encoder = Visual_encoder(args)
+visual_encoder.apply(initialize_weights)
+
+# This class implements the visual encoder, combining frontend feature extraction
+# with sequential 1D convolutional adaptations for further feature processing.
 class Visual_encoder(nn.Module):
     def __init__(self, args):
         super(Visual_encoder, self).__init__()
@@ -32,9 +68,7 @@ class Visual_encoder(nn.Module):
         visual = self.visual_conv(visual)
         return visual
 
-
-
-class ResNetLayer(nn.Module):
+class ResNet_Layer(nn.Module):
 
     """
     A ResNet layer used to build the ResNet network.
@@ -88,10 +122,10 @@ class ResNet(nn.Module):
 
     def __init__(self):
         super(ResNet, self).__init__()
-        self.layer1 = ResNetLayer(64, 64, stride=1)
-        self.layer2 = ResNetLayer(64, 128, stride=2)
-        self.layer3 = ResNetLayer(128, 256, stride=2)
-        self.layer4 = ResNetLayer(256, 512, stride=2)
+        self.layer1 = ResNet_Layer(64, 64, stride=1)
+        self.layer2 = ResNet_Layer(64, 128, stride=2)
+        self.layer3 = ResNet_Layer(128, 256, stride=2)
+        self.layer4 = ResNet_Layer(256, 512, stride=2)
         self.avgpool = nn.AvgPool2d(kernel_size=(4,4), stride=(1,1))
         return
 
@@ -106,7 +140,7 @@ class ResNet(nn.Module):
 
 
 
-class VisualFrontend(nn.Module):
+class Visual_Frontend(nn.Module):
 
     """
     A visual feature extraction module. Generates a 512-dim feature vector per video frame.
@@ -114,7 +148,7 @@ class VisualFrontend(nn.Module):
     """
 
     def __init__(self, args):
-        super(VisualFrontend, self).__init__()
+        super(Visual_Frontend, self).__init__()
         self.args =args
         if self.args.causal:
             padding = (4,3,3)
@@ -151,12 +185,13 @@ class VisualFrontend(nn.Module):
 
 
 
-class VisualConv1D(nn.Module):
+class Visual_Conv1D(nn.Module):
     def __init__(self, args, V=256, H=512, kernel_size=3, dilation=1):
-        super(VisualConv1D, self).__init__()
+        super(Visual_Conv1D, self).__init__()
         self.args =args
 
         self.relu_0 = nn.ReLU()
+        self.dropout = nn.Dropout(p=0.3)  #added by lin
         self.norm_0 = nn.BatchNorm1d(V)
         self.conv1x1 = nn.Conv1d(V, H, 1, bias=False)
         self.relu = nn.ReLU()
@@ -171,6 +206,7 @@ class VisualConv1D(nn.Module):
     def forward(self, x):
         out = self.relu_0(x)
         out = self.norm_0(out)
+        out = self.dropout(out) #added
         out = self.conv1x1(out)
         out = self.relu(out)
         out = self.norm_1(out)
